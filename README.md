@@ -20,9 +20,10 @@ A Virtual Teaching Assistant for IIT Madras Tools in Data Science course that au
 
 ## API Usage
 
-POST to `/api/` with JSON:
-```json
-"""{
+# POST to `/api/` with JSON:
+
+"""
+{
   "question": "Your question here",
   "image": "base64_encoded_image (optional)"
 }
