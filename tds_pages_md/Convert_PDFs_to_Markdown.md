@@ -1,7 +1,7 @@
 ---
 title: "Convert PDFs to Markdown"
-original_url: "https://tds.s-anand.net/#/convert-pdfs-to-markdown?id=tips-for-optimal-pdf-conversion"
-downloaded_at: "2025-05-31T21:37:36.930314"
+original_url: "https://tds.s-anand.net/#/convert-pdfs-to-markdown?id=other-libraries"
+downloaded_at: "2025-06-08T00:09:51.401591"
 ---
 
 [Converting PDFs to Markdown](#/convert-pdfs-to-markdown?id=converting-pdfs-to-markdown)

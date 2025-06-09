@@ -1,7 +1,7 @@
 ---
 title: "Scheduled Scraping with GitHub Actions"
-original_url: "https://tds.s-anand.net/#/scheduled-scraping-with-github-actions?id=video-tutorials"
-downloaded_at: "2025-05-31T21:38:12.796512"
+original_url: "https://tds.s-anand.net/#/scheduled-scraping-with-github-actions?id=best-practices"
+downloaded_at: "2025-06-08T00:07:28.607571"
 ---
 
 [Scheduled Scraping with GitHub Actions](#/scheduled-scraping-with-github-actions?id=scheduled-scraping-with-github-actions)

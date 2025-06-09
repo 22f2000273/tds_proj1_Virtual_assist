@@ -1,7 +1,7 @@
 ---
 title: "Browser: DevTools"
 original_url: "https://tds.s-anand.net/#/devtools?id=browser-devtools"
-downloaded_at: "2025-05-31T21:35:09.446941"
+downloaded_at: "2025-06-08T00:11:39.491603"
 ---
 
 [Browser: DevTools](#/devtools?id=browser-devtools)

@@ -1,7 +1,7 @@
 ---
 title: "Prompt engineering"
-original_url: "https://tds.s-anand.net/#/prompt-engineering?id=think-step-by-step"
-downloaded_at: "2025-05-31T21:38:08.140672"
+original_url: "https://tds.s-anand.net/#/prompt-engineering?id=assign-a-role"
+downloaded_at: "2025-06-08T00:10:53.645284"
 ---
 
 [Prompt Engineering](#/prompt-engineering?id=prompt-engineering)

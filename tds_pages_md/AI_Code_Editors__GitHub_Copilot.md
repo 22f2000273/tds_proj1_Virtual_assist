@@ -1,7 +1,7 @@
 ---
 title: "AI Code Editors: GitHub Copilot"
 original_url: "https://tds.s-anand.net/#/github-copilot?id=ai-editor-github-copilot"
-downloaded_at: "2025-05-31T21:37:23.376408"
+downloaded_at: "2025-06-08T00:10:30.092049"
 ---
 
 [AI Editor: GitHub Copilot](#/github-copilot?id=ai-editor-github-copilot)

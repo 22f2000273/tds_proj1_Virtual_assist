@@ -1,7 +1,7 @@
 ---
 title: "RAG with the CLI)"
-original_url: "https://tds.s-anand.net/#/rag-cli?id=_1-clone-the-repository"
-downloaded_at: "2025-05-31T21:38:47.705686"
+original_url: "https://tds.s-anand.net/#/rag-cli?id=_2-split-markdown-files-into-chunks"
+downloaded_at: "2025-06-08T00:10:01.758563"
 ---
 
 [Retrieval Augmented Generation (RAG) with the CLI](#/rag-cli?id=retrieval-augmented-generation-rag-with-the-cli)

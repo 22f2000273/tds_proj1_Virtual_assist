@@ -1,7 +1,7 @@
 ---
 title: "Geospatial Analysis with Excel"
 original_url: "https://tds.s-anand.net/#/geospatial-analysis-with-excel?id=geospatial-analysis-with-excel"
-downloaded_at: "2025-05-31T21:38:23.217068"
+downloaded_at: "2025-06-08T00:09:05.515652"
 ---
 
 [Geospatial Analysis with Excel](#/geospatial-analysis-with-excel?id=geospatial-analysis-with-excel)

@@ -1,7 +1,7 @@
 ---
 title: "TDS GPT Reviewer"
 original_url: "https://tds.s-anand.net/#/tds-gpt-reviewer?id=content-creation-prompts"
-downloaded_at: "2025-05-31T21:39:29.502552"
+downloaded_at: "2025-06-08T00:10:14.381073"
 ---
 
 [TDS GPT Reviewer](#/tds-gpt-reviewer?id=tds-gpt-reviewer)

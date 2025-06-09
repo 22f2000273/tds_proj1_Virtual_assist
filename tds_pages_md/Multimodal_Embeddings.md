@@ -1,7 +1,7 @@
 ---
 title: "Multimodal Embeddings"
-original_url: "https://tds.s-anand.net/#/multimodal-embeddings?id=_2-jina-ai"
-downloaded_at: "2025-05-31T21:38:19.737742"
+original_url: "https://tds.s-anand.net/#/multimodal-embeddings?id=multimodal-embeddings"
+downloaded_at: "2025-06-08T00:11:17.689193"
 ---
 
 [Multimodal Embeddings](#/multimodal-embeddings?id=multimodal-embeddings)

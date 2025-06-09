@@ -1,7 +1,7 @@
 ---
 title: "Data Transformation in Excel"
 original_url: "https://tds.s-anand.net/#/data-transformation-in-excel?id=data-transformation-in-excel"
-downloaded_at: "2025-05-31T21:34:22.341146"
+downloaded_at: "2025-06-08T00:10:43.436396"
 ---
 
 [Data Transformation in Excel](#/data-transformation-in-excel?id=data-transformation-in-excel)

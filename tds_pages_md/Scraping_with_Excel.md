@@ -1,7 +1,7 @@
 ---
 title: "Scraping with Excel"
 original_url: "https://tds.s-anand.net/#/scraping-with-excel?id=scraping-with-excel"
-downloaded_at: "2025-05-31T21:33:51.449948"
+downloaded_at: "2025-06-08T00:09:37.475370"
 ---
 
 [Scraping with Excel](#/scraping-with-excel?id=scraping-with-excel)

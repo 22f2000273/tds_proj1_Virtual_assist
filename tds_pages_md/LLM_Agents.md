@@ -1,7 +1,7 @@
 ---
 title: "LLM Agents"
-original_url: "https://tds.s-anand.net/#/llm-agents?id=limitations-and-challenges"
-downloaded_at: "2025-05-31T21:38:36.687429"
+original_url: "https://tds.s-anand.net/#/llm-agents?id=command-line-agent-example"
+downloaded_at: "2025-06-08T00:09:47.930832"
 ---
 
 [LLM Agents: Building AI Systems That Can Think and Act](#/llm-agents?id=llm-agents-building-ai-systems-that-can-think-and-act)

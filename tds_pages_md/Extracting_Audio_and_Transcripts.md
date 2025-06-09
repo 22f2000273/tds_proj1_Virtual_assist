@@ -1,7 +1,7 @@
 ---
 title: "Extracting Audio and Transcripts"
-original_url: "https://tds.s-anand.net/#/extracting-audio-and-transcripts?id=extracting-audio-and-transcripts"
-downloaded_at: "2025-05-31T21:39:20.074278"
+original_url: "https://tds.s-anand.net/#/extracting-audio-and-transcripts?id=gemini-transcription"
+downloaded_at: "2025-06-08T00:09:57.192874"
 ---
 
 [Extracting Audio and Transcripts](#/extracting-audio-and-transcripts?id=extracting-audio-and-transcripts)

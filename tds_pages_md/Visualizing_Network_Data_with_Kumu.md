@@ -1,7 +1,7 @@
 ---
 title: "Visualizing Network Data with Kumu"
 original_url: "https://tds.s-anand.net/#/visualizing-network-data-with-kumu?id=visualizing-network-data-with-kumu"
-downloaded_at: "2025-05-31T21:38:15.105926"
+downloaded_at: "2025-06-08T00:09:59.497333"
 ---
 
 [Visualizing Network Data with Kumu](#/visualizing-network-data-with-kumu?id=visualizing-network-data-with-kumu)

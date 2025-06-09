@@ -1,7 +1,7 @@
 ---
 title: "Wikipedia Data with Python"
 original_url: "https://tds.s-anand.net/#/wikipedia-data-with-python?id=wikipedia-data-with-python"
-downloaded_at: "2025-05-31T21:39:23.226490"
+downloaded_at: "2025-06-08T00:06:52.514894"
 ---
 
 [Wikipedia Data with Python](#/wikipedia-data-with-python?id=wikipedia-data-with-python)
