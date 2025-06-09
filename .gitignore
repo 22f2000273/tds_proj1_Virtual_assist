@@ -1,9 +1,5 @@
-<<<<<<< HEAD
 .env
 __pycache__/
 venv/
 *.pyc
-=======
 auth.json
->>>>>>> aab7700 (Discourse posts & Markdown Site)
-venv/
