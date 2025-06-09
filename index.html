@@ -1,0 +1,61 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Virtual Assistant Query</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2em; }
+        #answer { margin-top: 2em; padding: 1em; border: 1px solid #ccc; background: #f9f9f9; }
+        #sources { margin-top: 1em; }
+        label, input, button { font-size: 1em; }
+        input[type="text"] { width: 60%; padding: 0.5em; }
+        button { padding: 0.5em 1em; }
+    </style>
+</head>
+<body>
+    <h1>Ask the Virtual Assistant</h1>
+    <form id="queryForm">
+        <label for="question">Your question:</label><br>
+        <input type="text" id="question" name="question" required>
+        <button type="submit">Ask</button>
+    </form>
+    <div id="answer"></div>
+    <div id="sources"></div>
+
+    <script>
+        document.getElementById('queryForm').onsubmit = async function(e) {
+            e.preventDefault();
+            const question = document.getElementById('question').value;
+            document.getElementById('answer').innerHTML = "Loading...";
+            document.getElementById('sources').innerHTML = "";
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question })
+                });
+                const data = await response.json();
+                if (data.answer) {
+                    document.getElementById('answer').innerHTML = `<b>Answer:</b> ${data.answer}`;
+                    if (data.links && data.links.length > 0) {
+                        let html = "<b>Sources:</b><ul>";
+                        data.links.forEach(link => {
+                            html += `<li><a href="${link.url}" target="_blank">${link.url}</a>: ${link.text}</li>`;
+                        });
+                        html += "</ul>";
+                        document.getElementById('sources').innerHTML = html;
+                    }
+                } else if (data.error) {
+                    document.getElementById('answer').innerHTML = `<span style="color:red;">Error: ${data.error}</span>`;
+                } else {
+                    document.getElementById('answer').innerHTML = "No answer received.";
+                }
+            } catch (err) {
+                document.getElementById('answer').innerHTML = `<span style="color:red;">Request failed: ${err}</span>`;
+            }
+        };
+    </script>
+</body>
+</html>
