@@ -4,7 +4,7 @@ import json
 import sqlite3
 import numpy as np
 import re
-from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Body
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -600,7 +600,9 @@ def parse_llm_response(response):
 
 # Define API routes
 @app.post("/query")
-async def query_knowledge_base(request: QueryRequest):
+async def query_knowledge_base(request: Request):
+    body = await request.body()
+    print("Received POST /query with body:", body)
     try:
         # Log the incoming request
         logger.info(f"Received query request: question='{request.question[:50]}...', image_provided={request.image is not None}")
