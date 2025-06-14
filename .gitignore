@@ -15,9 +15,7 @@ venv/
 # Environment variables
 .env
 
-# Databases and binaries
-*.db
-*.bin
+
 
 # System files
 .DS_Store

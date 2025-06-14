@@ -3,7 +3,7 @@ description: "TDS Virtual TA Project Sample (but not the actual evaluation) Ques
 providers:
   - id: https
     config:
-      url: https://tds-proj1-virtual-assist.vercel.app/
+      url: http://localhost:8000/api/ # Updated to match our FastAPI endpoint
       method: POST
       headers:
         Content-Type: application/json
@@ -21,7 +21,7 @@ defaultTest:
         method: POST
         headers:
           Content-Type: application/json
-          Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6IjIyZjIwMDAyNzNAZHMuc3R1ZHkuaWl0bS5hYy5pbiJ9.ODIcsNPnLHL-TmTL0jpuMF8DogUUKRvnWOnZhS2pIxw
+          Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6IjIyZjIwMDAyNzNAZHMuc3R1ZHkuaWl0bS5hYy5pbiJ9.ODIcsNPnLHL-TmTL0jpuMF8DogUUKRvnWOnZhS2pIxw # Replace with your token
         body: |
           {
             "model": "gpt-4o-mini",
