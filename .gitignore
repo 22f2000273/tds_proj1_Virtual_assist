@@ -1,0 +1,26 @@
+.env
+auth.json
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+
+# Environment variables
+.env
+
+# System files
+.DS_Store
+Thumbs.db
+
+# VSCode or editor settings
+.vscode/
+*.code-workspace
+
+# Logs or debug files (if any)
+*.log
+
+# Node/Vercel (if applicable)
+node_modules/
+.vercel/
