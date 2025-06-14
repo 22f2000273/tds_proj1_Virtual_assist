@@ -3,18 +3,33 @@
   "builds": [
     {
       "src": "app.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "50mb"
+      }
     }
   ],
   "routes": [
     {
-      "src": "/(.*)",
+      "src": "/api/(.*)",
+      "dest": "app.py"
+    },
+    {
+      "src": "/health",
+      "dest": "app.py"
+    },
+    {
+      "src": "/",
       "dest": "app.py"
     }
   ],
   "env": {
     "PYTHONPATH": ".",
-    "DB_PATH": "knowledge_base.db",
     "API_KEY": "@api_key"
+  },
+  "functions": {
+    "app.py": {
+      "maxDuration": 60
+    }
   }
 }
