@@ -666,8 +666,14 @@ async def api_query(request: Request):
 
 @app.get("/health")
 async def health_check():
-    # ... [same as your health check code]
-    pass
+    try:
+        # Check if the database can be connected
+        conn = get_db_connection()
+        conn.close()
+        return {"status": "healthy"}
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return JSONResponse(status_code=500, content={"status": "unhealthy", "error": str(e)})
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
