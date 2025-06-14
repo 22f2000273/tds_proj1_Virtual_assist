@@ -10,9 +10,7 @@ __pycache__/
 # Virtual environment
 venv/
 
-# System files
-.DS_Store
-Thumbs.db
+
 
 # VSCode or editor settings
 .vscode/
@@ -23,9 +21,4 @@ Thumbs.db
 
 # Node/Vercel
 node_modules/
-.vercel/
 
-
-
-# Ignore data directory
-TDS-Project1-Data/
