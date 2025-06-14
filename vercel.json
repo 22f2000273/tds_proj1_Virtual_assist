@@ -23,10 +23,6 @@
       "dest": "app.py"
     }
   ],
-  "env": {
-    "PYTHONPATH": ".",
-    "API_KEY": "@api_key"
-  },
   "functions": {
     "app.py": {
       "maxDuration": 60

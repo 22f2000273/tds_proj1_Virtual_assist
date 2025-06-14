@@ -27,14 +27,15 @@ SIMILARITY_THRESHOLD = 0.20
 MAX_RESULTS = 20
 MAX_CONTEXT_CHUNKS = 5
 
-# Get API key once and format it properly
+# Get API key with better error handling
 API_KEY = os.getenv('API_KEY')
 if not API_KEY:
-    logger.error("API_KEY environment variable is not set")
-    raise ValueError("API_KEY environment variable is required")
+    logger.error("API_KEY environment variable is not set. The application will not function correctly.")
+    # Don't raise an error immediately, let the app start but show proper error messages
+    API_KEY = None
 
-# Ensure Bearer prefix is added only once
-if not API_KEY.startswith('Bearer '):
+# Ensure Bearer prefix is added only once if API_KEY exists
+if API_KEY and not API_KEY.startswith('Bearer '):
     API_KEY = f"Bearer {API_KEY}"
 
 # Models
@@ -158,6 +159,9 @@ def cosine_similarity(vec1, vec2):
 
 # Function to get embedding from API
 async def get_embedding(text, max_retries=3):
+    if not API_KEY:
+        raise HTTPException(status_code=500, detail="API_KEY not configured. Please set the API_KEY environment variable.")
+    
     retries = 0
     while retries < max_retries:
         try:
@@ -312,6 +316,9 @@ async def find_similar_content(query_embedding, conn):
 
 # Function to generate answer using LLM
 async def generate_answer(question, relevant_results, max_retries=2):
+    if not API_KEY:
+        raise HTTPException(status_code=500, detail="API_KEY not configured. Please set the API_KEY environment variable.")
+    
     retries = 0
     while retries < max_retries:    
         try:
@@ -391,6 +398,9 @@ async def process_multimodal_query(question, image_base64):
         logger.info(f"Processing query: '{question[:50]}...', image provided: {image_base64 is not None}")
         if not image_base64:
             return await get_embedding(question)
+        
+        if not API_KEY:
+            raise HTTPException(status_code=500, detail="API_KEY not configured. Please set the API_KEY environment variable.")
         
         # Process image with GPT-4o Vision
         url = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
@@ -479,14 +489,42 @@ def parse_llm_response(response):
 # API Routes
 @app.get("/")
 async def root():
-    return HTMLResponse(content="""
+    # Check configuration status
+    config_status = {
+        "api_key_configured": API_KEY is not None,
+        "environment": "vercel" if os.getenv('VERCEL') else "local",
+        "database_available": not os.getenv('VERCEL')  # Database only available locally
+    }
+    
+    status_message = ""
+    if not config_status["api_key_configured"]:
+        status_message += "⚠️ API_KEY not configured. "
+    if config_status["environment"] == "vercel" and not config_status["database_available"]:
+        status_message += "⚠️ Database not configured for production. "
+    
+    if not status_message:
+        status_message = "✅ All systems configured correctly."
+    
+    return HTMLResponse(content=f"""
     <html>
         <head>
             <title>RAG Query API</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 2em; }}
+                .status {{ padding: 1em; margin: 1em 0; border-radius: 5px; }}
+                .warning {{ background-color: #fff3cd; border: 1px solid #ffeaa7; }}
+                .success {{ background-color: #d4edda; border: 1px solid #c3e6cb; }}
+            </style>
         </head>
         <body>
             <h1>RAG Query API</h1>
+            <div class="status {'success' if not status_message.startswith('⚠️') else 'warning'}">
+                <strong>Status:</strong> {status_message}
+            </div>
             <p>API is running. Use POST /api/ to make queries.</p>
+            <p>Environment: {config_status["environment"]}</p>
+            <p>API Key: {'✅ Configured' if config_status["api_key_configured"] else '❌ Not configured'}</p>
+            <p>Database: {'✅ Available' if config_status["database_available"] else '❌ Not configured'}</p>
             <p>For the full interface, serve the index.html file separately.</p>
         </body>
     </html>
@@ -508,6 +546,16 @@ async def api_query(request: Request):
             )
         
         logger.info(f"Received API query: '{question[:50]}...'")
+        
+        # Check if API key is configured
+        if not API_KEY:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "answer": "API_KEY not configured. Please set the API_KEY environment variable in your Vercel dashboard.",
+                    "links": []
+                }
+            )
         
         # Check if we're in Vercel and database isn't set up
         if os.getenv('VERCEL'):
@@ -554,14 +602,27 @@ async def api_query(request: Request):
 @app.get("/health")
 async def health_check():
     try:
-        if os.getenv('VERCEL'):
-            return {"status": "healthy", "environment": "vercel", "database": "not_configured"}
+        health_status = {
+            "status": "healthy",
+            "environment": "vercel" if os.getenv('VERCEL') else "local",
+            "api_key_configured": API_KEY is not None,
+            "database": "not_configured" if os.getenv('VERCEL') else "connected"
+        }
         
-        conn = get_db_connection()
-        conn.close()
-        return {"status": "healthy", "environment": "local", "database": "connected"}
+        if not os.getenv('VERCEL'):
+            # Test database connection only if not on Vercel
+            conn = get_db_connection()
+            conn.close()
+            health_status["database"] = "connected"
+        
+        return health_status
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         return JSONResponse(
             status_code=500, 
-            content={"status": "unhealthy", "error": str(e)}
+            content={
+                "status": "unhealthy", 
+                "error": str(e),
+                "api_key_configured": API_KEY is not None
+            }
+        )
