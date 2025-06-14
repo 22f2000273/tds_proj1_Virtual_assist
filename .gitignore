@@ -1,5 +1,6 @@
 .env
 auth.json
+
 # Python
 __pycache__/
 *.pyc
@@ -9,10 +10,6 @@ __pycache__/
 # Virtual environment
 venv/
 
-# Databases and binaries
-*.db
-*.bin
-
 # System files
 .DS_Store
 Thumbs.db
@@ -21,14 +18,13 @@ Thumbs.db
 .vscode/
 *.code-workspace
 
-# Logs or debug files (if any)
+# Logs or debug files
 *.log
 
-# Node/Vercel (if applicable)
+# Node/Vercel
 node_modules/
 .vercel/
-*.bin
-*.db-*
 
-*.bin
-.vercel
+# Keep database files
+!knowledge_base.db
+!*.db
