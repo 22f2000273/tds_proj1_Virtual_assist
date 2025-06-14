@@ -1,7 +1,4 @@
 .env
-__pycache__/
-venv/
-*.pyc
 auth.json
 # Python
 __pycache__/
@@ -11,9 +8,6 @@ __pycache__/
 
 # Virtual environment
 venv/
-
-# Environment variables
-.env
 
 # Databases and binaries
 *.db
@@ -33,3 +27,7 @@ Thumbs.db
 # Node/Vercel (if applicable)
 node_modules/
 .vercel/
+*.bin
+*.db-*
+
+*.bin
