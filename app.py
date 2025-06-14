@@ -82,21 +82,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Update ensure_database_exists function
 def ensure_database_exists():
-    """Ensure database exists with correct schema - compatible with Vercel"""
+    """Ensure database exists with correct schema - Vercel compatible"""
     try:
-        # Check if database exists
-        if not os.path.exists(DB_PATH):
-            logger.info(f"Database doesn't exist at {DB_PATH}, creating it...")
-            
-            # Ensure the directory exists
+        # For Vercel, always recreate in /tmp
+        if os.environ.get('VERCEL'):
+            logger.info("Running on Vercel - creating fresh database")
             os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-            
-            conn = sqlite3.connect(DB_PATH)
-            c = conn.cursor()
-            
-            # Create discourse_chunks table
-            c.execute('''
+        elif not os.path.exists(DB_PATH):
+            logger.info("Database not found - creating new one")
+        else:
+            logger.info("Database exists - skipping creation")
+            return
+
+        # Create/recreate database
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        
+        # Create tables with IF NOT EXISTS
+        c.executescript('''
             CREATE TABLE IF NOT EXISTS discourse_chunks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 post_id INTEGER,
@@ -110,11 +115,8 @@ def ensure_database_exists():
                 content TEXT,
                 url TEXT,
                 embedding BLOB
-            )
-            ''')
+            );
             
-            # Create markdown_chunks table
-            c.execute('''
             CREATE TABLE IF NOT EXISTS markdown_chunks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 doc_title TEXT,
@@ -123,51 +125,33 @@ def ensure_database_exists():
                 chunk_index INTEGER,
                 content TEXT,
                 embedding BLOB
-            )
-            ''')
+            );
             
-            # Create indexes for better performance
-            c.execute('CREATE INDEX IF NOT EXISTS idx_discourse_post_id ON discourse_chunks(post_id)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_discourse_topic_id ON discourse_chunks(topic_id)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_markdown_title ON markdown_chunks(doc_title)')
-            
-            # Add some sample data for testing
-            sample_embedding = json.dumps([0.1] * 1536)  # Dummy embedding for testing
-            
-            c.execute('''
-            INSERT INTO discourse_chunks 
-            (post_id, topic_id, topic_title, post_number, author, created_at, likes, chunk_index, content, url, embedding)
+            CREATE INDEX IF NOT EXISTS idx_discourse_post_id ON discourse_chunks(post_id);
+            CREATE INDEX IF NOT EXISTS idx_discourse_topic_id ON discourse_chunks(topic_id);
+            CREATE INDEX IF NOT EXISTS idx_markdown_title ON markdown_chunks(doc_title);
+        ''')
+        
+        # Add sample data for testing
+        sample_embedding = json.dumps([0.1] * 1536)
+        c.execute('''
+            INSERT OR REPLACE INTO discourse_chunks 
+            (post_id, topic_id, topic_title, post_number, author, created_at, likes, 
+             chunk_index, content, url, embedding)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                1, 1, "Sample Docker vs Podman Discussion", 1, "test_user", "2024-01-01", 5, 0,
-                "Docker and Podman are both container technologies. Docker is more established with a daemon-based architecture, while Podman is daemonless and more secure. For beginners, Docker has better documentation and community support. For production environments focused on security, Podman might be preferred.",
-                "https://discourse.onlinedegree.iitm.ac.in/t/docker-vs-podman/1",
-                sample_embedding
-            ))
-            
-            c.execute('''
-            INSERT INTO markdown_chunks 
-            (doc_title, original_url, downloaded_at, chunk_index, content, embedding)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ''', (
-                "Container Technologies Guide",
-                "https://docs.onlinedegree.iitm.ac.in/containers",
-                "2024-01-01",
-                0,
-                "Container technologies like Docker and Podman help in application deployment and management. Docker provides a comprehensive ecosystem with Docker Hub, Docker Compose, and Swarm. Podman offers a more secure, rootless alternative that's compatible with Docker commands but doesn't require a daemon process.",
-                sample_embedding
-            ))
-            
-            conn.commit()
-            conn.close()
-            
-            logger.info("Database created successfully with sample data")
-        else:
-            logger.info(f"Database already exists at {DB_PATH}")
-            
+        ''', (1, 1, "Sample Discussion", 1, "test_user", "2024-01-01", 5, 0,
+              "Test content about Docker and Podman",
+              "https://discourse.onlinedegree.iitm.ac.in/t/test/1",
+              sample_embedding))
+        
+        conn.commit()
+        conn.close()
+        logger.info("Database initialized successfully")
+        
     except Exception as e:
-        logger.error(f"Error ensuring database exists: {e}")
+        logger.error(f"Database initialization failed: {e}")
         logger.error(traceback.format_exc())
+        raise
 
 # Create database on startup
 ensure_database_exists()
@@ -620,39 +604,49 @@ async def health_check():
     try:
         logger.info("Health check requested")
         
-        # Try to connect to the database as part of health check
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
+        # Initialize with safe defaults
+        status = {
+            "status": "healthy",
+            "database": "disconnected",
+            "api_key_set": bool(API_KEY),
+            "discourse_chunks": 0,
+            "markdown_chunks": 0,
+            "discourse_embeddings": 0,
+            "markdown_embeddings": 0,
+            "environment": "vercel" if os.environ.get('VERCEL') else "local"
+        }
         
-        # Check if tables exist and have data
-        cursor.execute("SELECT COUNT(*) FROM discourse_chunks")
-        discourse_count = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT COUNT(*) FROM markdown_chunks")
-        markdown_count = cursor.fetchone()[0]
-        
-        # Check if any embeddings exist
-        cursor.execute("SELECT COUNT(*) FROM discourse_chunks WHERE embedding IS NOT NULL")
-        discourse_embeddings = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT COUNT(*) FROM markdown_chunks WHERE embedding IS NOT NULL")
-        markdown_embeddings = cursor.fetchone()[0]
-        
-        conn.close()
-        
-        # Determine environment
-        environment = "vercel" if os.environ.get('VERCEL') else "local"
-        
-        return HealthResponse(
-            status="healthy",
-            database="connected",
-            api_key_set=bool(API_KEY),
-            discourse_chunks=discourse_count,
-            markdown_chunks=markdown_count,
-            discourse_embeddings=discourse_embeddings,
-            markdown_embeddings=markdown_embeddings,
-            environment=environment
-        )
+        try:
+            # Ensure database exists (important for Vercel's ephemeral filesystem)
+            ensure_database_exists()
+            
+            # Test database connection and get counts
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            
+            # Get table counts safely
+            cursor.execute("SELECT COUNT(*) FROM discourse_chunks")
+            status["discourse_chunks"] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM markdown_chunks")
+            status["markdown_chunks"] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM discourse_chunks WHERE embedding IS NOT NULL")
+            status["discourse_embeddings"] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM markdown_chunks WHERE embedding IS NOT NULL")
+            status["markdown_embeddings"] = cursor.fetchone()[0]
+            
+            status["database"] = "connected"
+            conn.close()
+            
+        except sqlite3.Error as e:
+            logger.error(f"Database error in health check: {e}")
+            status["status"] = "unhealthy"
+            status["database"] = f"error: {str(e)}"
+            return JSONResponse(status_code=500, content=status)
+            
+        return JSONResponse(status_code=200, content=status)
         
     except Exception as e:
         logger.error(f"Health check failed: {e}")
