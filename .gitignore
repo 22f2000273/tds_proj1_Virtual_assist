@@ -25,9 +25,7 @@ Thumbs.db
 node_modules/
 .vercel/
 
-# Keep database files
-!knowledge_base.db
-!*.db
+
 
 # Ignore data directory
 TDS-Project1-Data/
