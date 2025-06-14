@@ -61,7 +61,6 @@
 
             try {
                 if (imageFile) {
-                    // Convert uploaded file to base64
                     imageBase64 = await new Promise((resolve, reject) => {
                         const reader = new FileReader();
                         reader.onloadend = () => resolve(reader.result.split(',')[1]);
@@ -69,7 +68,6 @@
                         reader.readAsDataURL(imageFile);
                     });
                 } else if (imageUrl) {
-                    // Fetch image from URL and convert to base64
                     imageBase64 = await fetchImageAsBase64(imageUrl);
                 } else if (imageBase64Input) {
                     imageBase64 = imageBase64Input;
@@ -78,15 +76,24 @@
                 const payload = { question };
                 if (imageBase64) payload.image = imageBase64;
 
-                const response = await fetch('http://127.0.0.1:8000/query', {
+                // Use your deployed endpoint here:
+                const response = await fetch('https://tds-proj1-virtual-assist.vercel.app/query', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                const data = await response.json();
-                if (data.answer) {
+
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonErr) {
+                    document.getElementById('answer').innerHTML = `<span style="color:red;">Invalid JSON response from server.</span>`;
+                    return;
+                }
+
+                if (data && typeof data.answer === "string") {
                     document.getElementById('answer').innerHTML = `<b>Answer:</b> ${data.answer}`;
-                    if (data.links && data.links.length > 0) {
+                    if (Array.isArray(data.links) && data.links.length > 0) {
                         let html = "<b>Sources:</b><ul>";
                         data.links.forEach(link => {
                             html += `<li><a href="${link.url}" target="_blank">${link.url}</a>: ${link.text}</li>`;
@@ -94,10 +101,10 @@
                         html += "</ul>";
                         document.getElementById('sources').innerHTML = html;
                     }
-                } else if (data.error) {
+                } else if (data && data.error) {
                     document.getElementById('answer').innerHTML = `<span style="color:red;">Error: ${data.error}</span>`;
                 } else {
-                    document.getElementById('answer').innerHTML = "No answer received.";
+                    document.getElementById('answer').innerHTML = `<span style="color:red;">No answer received or invalid response format.</span>`;
                 }
             } catch (err) {
                 document.getElementById('answer').innerHTML = `<span style="color:red;">Request failed: ${err}</span>`;

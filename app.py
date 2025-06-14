@@ -12,7 +12,7 @@ import aiohttp
 import asyncio
 import logging
 import base64
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 import uvicorn
 import traceback
 from dotenv import load_dotenv
@@ -599,101 +599,84 @@ def parse_llm_response(response):
         }
 
 # Define API routes
+@app.post("/")
 @app.post("/query")
 async def query_knowledge_base(request: Request):
-    body = await request.body()
-    print("Received POST /query with body:", body)
     try:
-        # Log the incoming request
-        logger.info(f"Received query request: question='{request.question[:50]}...', image_provided={request.image is not None}")
+        # Parse the JSON body from the request
+        body = await request.json()
+        question = body.get("question")
+        image = body.get("image")
         
-        if not API_KEY:
-            error_msg = "API_KEY environment variable not set"
-            logger.error(error_msg)
+        # Validate that question is provided
+        if not question:
             return JSONResponse(
-                status_code=500,
-                content={"error": error_msg}
+                status_code=400,
+                content={
+                    "answer": "Error: Question is required",
+                    "links": []
+                }
             )
-            
+        
+        logger.info(f"Received query: '{question[:50]}...'")
+        
+        # Get database connection
         conn = get_db_connection()
         
         try:
-            # Process the query (handle text and optional image)
-            logger.info("Processing query and generating embedding")
-            query_embedding = await process_multimodal_query(
-                request.question,
-                request.image
-            )
+            # Process the query (multimodal if image is provided)
+            query_embedding = await process_multimodal_query(question, image)
             
             # Find similar content
-            logger.info("Finding similar content")
-            relevant_results = await find_similar_content(query_embedding, conn)
+            similar_results = await find_similar_content(query_embedding, conn)
             
-            if not relevant_results:
-                logger.info("No relevant results found")
-                return {
-                    "answer": "I couldn't find any relevant information in my knowledge base.",
-                    "links": []
-                }
+            if not similar_results:
+                logger.info("No similar content found")
+                return JSONResponse(
+                    content={
+                        "answer": "I don't have enough information to answer this question based on the available knowledge base.",
+                        "links": []
+                    }
+                )
             
             # Enrich results with adjacent chunks for better context
-            logger.info("Enriching results with adjacent chunks")
-            enriched_results = await enrich_with_adjacent_chunks(conn, relevant_results)
+            enriched_results = await enrich_with_adjacent_chunks(conn, similar_results)
             
-            # Generate answer
-            logger.info("Generating answer")
-            llm_response = await generate_answer(request.question, enriched_results)
+            # Generate answer using LLM
+            llm_response = await generate_answer(question, enriched_results)
             
-            # Parse the response
-            logger.info("Parsing LLM response")
-            result = parse_llm_response(llm_response)
+            # Parse the LLM response
+            parsed_response = parse_llm_response(llm_response)
             
-            # If links extraction failed, create them from the relevant results
-            if not result["links"]:
-                logger.info("No links extracted, creating from relevant results")
-                # Create a dict to deduplicate links from the same source
-                links = []
-                unique_urls = set()
-                
-                for res in relevant_results[:5]:  # Use top 5 results
-                    url = res["url"]
-                    if url not in unique_urls:
-                        unique_urls.add(url)
-                        snippet = res["content"][:100] + "..." if len(res["content"]) > 100 else res["content"]
-                        links.append({"url": url, "text": snippet})
-                
-                result["links"] = links
+            logger.info(f"Successfully processed query, returning answer with {len(parsed_response['links'])} links")
             
-            # Log the final result structure (without full content for brevity)
-            logger.info(f"Returning result: answer_length={len(result['answer'])}, num_links={len(result['links'])}")
+            return JSONResponse(content={
+                "answer": parsed_response["answer"],
+                "links": parsed_response["links"]
+            })
             
-            # Return the response in the exact format required
-            return result
-        except Exception as e:
-            error_msg = f"Error processing query: {e}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
-            return JSONResponse(
-                status_code=500,
-                content={"error": error_msg}
-            )
         finally:
             conn.close()
+            
     except Exception as e:
-        # Catch any exceptions at the top level
-        error_msg = f"Unhandled exception in query_knowledge_base: {e}"
+        error_msg = f"Unhandled exception in query_knowledge_base: {str(e)}"
         logger.error(error_msg)
         logger.error(traceback.format_exc())
         return JSONResponse(
             status_code=500,
-            content={"error": error_msg}
+            content={
+                "answer": f"Error: {str(e)}",
+                "links": []
+            }
         )
 
 @app.get("/")
 async def root():
-    from fastapi.responses import HTMLResponse
-    with open("index.html", "r") as file:
-        return HTMLResponse(content=file.read(), status_code=200)
+    try:
+        with open("index.html", "r") as file:
+            return HTMLResponse(content=file.read(), status_code=200)
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>RAG Query API</h1><p>API is running. Use POST /query to make queries.</p>", status_code=200)
 
 # Health check endpoint
 @app.get("/health")
