@@ -3,3 +3,33 @@ __pycache__/
 venv/
 *.pyc
 auth.json
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+
+# Environment variables
+.env
+
+# Databases and binaries
+*.db
+*.bin
+
+# System files
+.DS_Store
+Thumbs.db
+
+# VSCode or editor settings
+.vscode/
+*.code-workspace
+
+# Logs or debug files (if any)
+*.log
+
+# Node/Vercel (if applicable)
+node_modules/
+.vercel/

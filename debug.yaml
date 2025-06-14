@@ -1,0 +1,35 @@
+description: "Debug TDS Virtual TA API"
+
+prompts:
+  - "{{question}}"
+
+providers:
+  - id: https
+    config:
+      url: http://127.0.0.1:8000/api/
+      method: POST
+      headers:
+        Content-Type: application/json
+      body:
+        question: "{{question}}"
+      transformResponse: json
+
+tests:
+  - description: "Simple Docker question test"
+    vars:
+      question: "I know Docker but have not used Podman before. Should I use Docker for this course?"
+    assert:
+      - type: is-json
+        value:
+          type: object
+          required: [answer, links]
+          properties:
+            answer: { type: string }
+            links:
+              type: array
+              items:
+                type: object
+                required: [url, text]
+
+commandLineOptions:
+  cache: false

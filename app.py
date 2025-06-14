@@ -26,8 +26,12 @@ DB_PATH = "knowledge_base.db"
 SIMILARITY_THRESHOLD = 0.20  # Lowered threshold for better recall
 MAX_RESULTS = 20  # Increased to get more context
 load_dotenv()
-MAX_CONTEXT_CHUNKS = 4  # Increased number of chunks per source
-API_KEY = os.getenv("API_KEY")  # Get API key from environment variable
+MAX_CONTEXT_CHUNKS = 5  # Increased number of chunks per source
+API_KEY = os.getenv('API_KEY')  # Get API key from environment variable
+if API_KEY:
+    API_KEY = os.getenv('API_KEY')
+else:
+    logger.error("API_KEY environment variable is not set. The application will not function correctly.")
 
 # Models
 class QueryRequest(BaseModel):
@@ -55,9 +59,12 @@ app.add_middleware(
 )
 
 # Verify API key is set
-if not API_KEY:
+API_KEY = os.getenv('API_KEY')
+if API_KEY:
+    API_KEY = f"Bearer {API_KEY}"
+else:
     logger.error("API_KEY environment variable is not set. The application will not function correctly.")
-
+    raise ValueError("API_KEY environment variable is not set")
 # Create a connection to the SQLite database
 def get_db_connection():
     conn = None
@@ -147,8 +154,13 @@ async def get_embedding(text, max_retries=3):
             logger.info(f"Getting embedding for text (length: {len(text)})")
             # Call the embedding API through aipipe proxy
             url = "https://aiproxy.sanand.workers.dev/openai/v1/embeddings"
+            if not API_KEY:
+                error_msg = "API_KEY environment variable is not set"
+                logger.error(error_msg)
+                raise HTTPException(status_code=500, detail=error_msg)
+
             headers = {
-                "Authorization": API_KEY,
+                "Authorization": API_KEY,  # This adds Bearer once
                 "Content-Type": "application/json"
             }
             payload = {
@@ -429,9 +441,9 @@ async def generate_answer(question, relevant_results, max_retries=2):
             #url = "https://aipipe.org/openai/v1/chat/completions"
             url = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
             headers = {
-                "Authorization": API_KEY,
-                "Content-Type": "application/json"
-            }
+               "Authorization": API_KEY,  # This adds Bearer once
+            "Content-Type": "application/json"
+                }
             payload = {
                 "model": "gpt-4o-mini",
                 "messages": [
@@ -485,10 +497,9 @@ async def process_multimodal_query(question, image_base64):
         url = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
         
         headers = {
-            "Authorization": API_KEY,
+            "Authorization": API_KEY,  # This adds Bearer once
             "Content-Type": "application/json"
-        }
-        
+                   }
         # Format the image for the API
         image_content = f"data:image/jpeg;base64,{image_base64}"
         
@@ -599,6 +610,68 @@ def parse_llm_response(response):
         }
 
 # Define API routes
+# ... [all your imports and setup code remain unchanged]
+
+@app.get("/")
+async def root():
+    try:
+        with open("index.html", "r") as file:
+            return HTMLResponse(content=file.read(), status_code=200)
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>RAG Query API</h1><p>API is running. Use POST /api/ to make queries.</p>", status_code=200)
+
+@app.post("/api/", response_model=QueryResponse)
+async def api_query(request: Request):
+    try:
+        body = await request.json()
+        question = body.get("question")
+        image = body.get("image")
+        if not question:
+            return JSONResponse(
+                status_code=400,
+                content={"answer": "Error: Question is required", "links": []}
+            )
+        logger.info(f"Received API query: '{question[:50]}...'")
+        conn = get_db_connection()
+        try:
+            query_embedding = await process_multimodal_query(question, image)
+            similar_results = await find_similar_content(query_embedding, conn)
+            if not similar_results:
+                logger.info("No similar content found")
+                return {"answer": "I don't have enough information to answer this question based on the available knowledge base.", "links": []}
+            enriched_results = await enrich_with_adjacent_chunks(conn, similar_results)
+            llm_response = await generate_answer(question, enriched_results)
+            parsed_response = parse_llm_response(llm_response)
+            logger.info(f"Returning answer with {len(parsed_response['links'])} links")
+            # Enforce format: answer (string), links (list of dicts with url/text)
+            return QueryResponse(
+                answer=parsed_response["answer"],
+                links=[LinkInfo(**link) for link in parsed_response["links"]]
+            )
+        finally:
+            conn.close()
+    except Exception as e:
+        error_msg = f"Unhandled exception in api_query: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            status_code=500,
+            content={"answer": f"Error: {str(e)}", "links": []}
+        )
+
+@app.get("/health")
+async def health_check():
+    # ... [same as your health check code]
+    pass
+
+# Optionally, remove or comment out the old / and /query POST endpoints to avoid confusion
+
+if __name__ == "__main__":
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+
+
+
+"""
 @app.post("/")
 @app.post("/query")
 async def query_knowledge_base(request: Request):
@@ -720,3 +793,4 @@ async def health_check():
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    """
