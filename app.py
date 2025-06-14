@@ -49,7 +49,7 @@ app = FastAPI(title="RAG Query API", description="API for querying the RAG knowl
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,  # Changed to False for simpler CORS
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -599,8 +599,8 @@ def parse_llm_response(response):
         }
 
 # Define API routes
-@app.post("/")
-@app.post("/query")
+@app.post("/api")
+@app.post("/query")  # Add this route for frontend compatibility
 async def query_knowledge_base(request: Request):
     try:
         # Parse the JSON body from the request
