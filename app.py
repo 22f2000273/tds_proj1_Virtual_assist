@@ -49,13 +49,13 @@ class QueryResponse(BaseModel):
 # Initialize FastAPI app
 app = FastAPI(title="RAG Query API", description="API for querying the RAG knowledge base")
 
-# Add CORS middleware
+# Add CORS middleware with more permissive settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=["*"],  # For development
+    allow_credentials=False,  # Changed from True
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
 
 # Verify API key is set
@@ -610,7 +610,6 @@ def parse_llm_response(response):
         }
 
 # Define API routes
-# ... [all your imports and setup code remain unchanged]
 
 @app.get("/")
 async def root():
@@ -623,6 +622,10 @@ async def root():
 @app.post("/api/", response_model=QueryResponse)
 async def api_query(request: Request):
     try:
+        # Log request details
+        logger.info(f"Received request from: {request.client.host}")
+        logger.info(f"Request headers: {request.headers}")
+        
         body = await request.json()
         question = body.get("question")
         image = body.get("image")
@@ -651,12 +654,14 @@ async def api_query(request: Request):
         finally:
             conn.close()
     except Exception as e:
-        error_msg = f"Unhandled exception in api_query: {str(e)}"
-        logger.error(error_msg)
+        logger.error(f"API Error: {str(e)}")
         logger.error(traceback.format_exc())
         return JSONResponse(
             status_code=500,
-            content={"answer": f"Error: {str(e)}", "links": []}
+            content={
+                "answer": f"Server error: {str(e)}",
+                "links": []
+            }
         )
 
 @app.get("/health")
@@ -664,8 +669,5 @@ async def health_check():
     # ... [same as your health check code]
     pass
 
-# Optionally, remove or comment out the old / and /query POST endpoints to avoid confusion
-
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
-
