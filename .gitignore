@@ -3,7 +3,8 @@ __pycache__/
 venv/
 *.pyc
 auth.json
-# Python
+
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
@@ -15,19 +16,18 @@ venv/
 # Environment variables
 .env
 
-
-
 # System files
 .DS_Store
 Thumbs.db
 
-# VSCode or editor settings
+# VSCode
 .vscode/
 *.code-workspace
 
-# Logs or debug files (if any)
+# Logs
 *.log
 
-# Node/Vercel (if applicable)
+# Node/Vercel
 node_modules/
 .vercel/
+
