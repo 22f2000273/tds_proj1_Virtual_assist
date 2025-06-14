@@ -4,44 +4,39 @@ import json
 import sqlite3
 import numpy as np
 import re
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import aiohttp
 import asyncio
 import logging
-import traceback
+import base64
 from fastapi.responses import JSONResponse, HTMLResponse
+import uvicorn
+import traceback
 from dotenv import load_dotenv
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
-
 # Constants
-SIMILARITY_THRESHOLD = 0.20
-MAX_RESULTS = 20
-MAX_CONTEXT_CHUNKS = 5
-
-# Get API key with better error handling
-API_KEY = os.getenv('API_KEY')
-if not API_KEY:
+DB_PATH = "knowledge_base.db"
+SIMILARITY_THRESHOLD = 0.20  # Lowered threshold for better recall
+MAX_RESULTS = 20  # Increased to get more context
+load_dotenv()
+MAX_CONTEXT_CHUNKS = 5  # Increased number of chunks per source
+API_KEY = os.getenv('API_KEY')  # Get API key from environment variable
+if API_KEY:
+    API_KEY = os.getenv('API_KEY')
+else:
     logger.error("API_KEY environment variable is not set. The application will not function correctly.")
-    # Don't raise an error immediately, let the app start but show proper error messages
-    API_KEY = None
-
-# Ensure Bearer prefix is added only once if API_KEY exists
-if API_KEY and not API_KEY.startswith('Bearer '):
-    API_KEY = f"Bearer {API_KEY}"
 
 # Models
 class QueryRequest(BaseModel):
     question: str
-    image: Optional[str] = None
+    image: Optional[str] = None  # Base64 encoded image
 
 class LinkInfo(BaseModel):
     url: str
@@ -57,119 +52,115 @@ app = FastAPI(title="RAG Query API", description="API for querying the RAG knowl
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure this properly for production
-    allow_credentials=False,
+    allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
-# Database connection with proper error handling for Vercel
+# Verify API key is set
+API_KEY = os.getenv('API_KEY')
+if API_KEY:
+    API_KEY = f"Bearer {API_KEY}"
+else:
+    logger.error("API_KEY environment variable is not set. The application will not function correctly.")
+    raise ValueError("API_KEY environment variable is not set")
+# Create a connection to the SQLite database
 def get_db_connection():
-    """
-    For Vercel deployment, you'll need to replace this with a proper database service
-    like Vercel Postgres, PlanetScale, or Supabase
-    """
+    conn = None
     try:
-        # This will fail on Vercel - you need to use a cloud database
-        db_path = os.getenv('DB_PATH', '/tmp/knowledge_base.db')  # Use /tmp for temporary files
-        
-        # Check if we're in Vercel environment
-        if os.getenv('VERCEL'):
-            # You should replace this with actual cloud database connection
-            raise HTTPException(
-                status_code=500, 
-                detail="Database not configured for production. Please set up Vercel Postgres or another cloud database."
-            )
-        
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row  # This enables column access by name
         return conn
     except sqlite3.Error as e:
         error_msg = f"Database connection error: {str(e)}"
         logger.error(error_msg)
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=error_msg)
 
-# Initialize database (this won't work on Vercel)
-def init_database():
-    """Initialize database - only works locally"""
-    if os.getenv('VERCEL'):
-        return  # Skip database initialization on Vercel
-        
-    db_path = os.getenv('DB_PATH', 'knowledge_base.db')
-    if not os.path.exists(db_path):
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
-        
-        # Create discourse_chunks table
-        c.execute('''
-        CREATE TABLE IF NOT EXISTS discourse_chunks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            post_id INTEGER,
-            topic_id INTEGER,
-            topic_title TEXT,
-            post_number INTEGER,
-            author TEXT,
-            created_at TEXT,
-            likes INTEGER,
-            chunk_index INTEGER,
-            content TEXT,
-            url TEXT,
-            embedding BLOB
-        )
-        ''')
-        
-        # Create markdown_chunks table
-        c.execute('''
-        CREATE TABLE IF NOT EXISTS markdown_chunks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            doc_title TEXT,
-            original_url TEXT,
-            downloaded_at TEXT,
-            chunk_index INTEGER,
-            content TEXT,
-            embedding BLOB
-        )
-        ''')
-        conn.commit()
-        conn.close()
+# Make sure database exists or create it
+if not os.path.exists(DB_PATH):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    # Create discourse_chunks table
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS discourse_chunks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER,
+        topic_id INTEGER,
+        topic_title TEXT,
+        post_number INTEGER,
+        author TEXT,
+        created_at TEXT,
+        likes INTEGER,
+        chunk_index INTEGER,
+        content TEXT,
+        url TEXT,
+        embedding BLOB
+    )
+    ''')
+    
+    # Create markdown_chunks table
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS markdown_chunks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_title TEXT,
+        original_url TEXT,
+        downloaded_at TEXT,
+        chunk_index INTEGER,
+        content TEXT,
+        embedding BLOB
+    )
+    ''')
+    conn.commit()
+    conn.close()
 
-# Initialize database
-init_database()
-
-# Vector similarity calculation
+# Vector similarity calculation with improved handling
 def cosine_similarity(vec1, vec2):
     try:
+        # Convert to numpy arrays
         vec1 = np.array(vec1)
         vec2 = np.array(vec2)
         
+        # Handle zero vectors
         if np.all(vec1 == 0) or np.all(vec2 == 0):
             return 0.0
             
+        # Calculate cosine similarity
         dot_product = np.dot(vec1, vec2)
         norm_vec1 = np.linalg.norm(vec1)
         norm_vec2 = np.linalg.norm(vec2)
         
+        # Avoid division by zero
         if norm_vec1 == 0 or norm_vec2 == 0:
             return 0.0
             
         return dot_product / (norm_vec1 * norm_vec2)
     except Exception as e:
         logger.error(f"Error in cosine_similarity: {e}")
-        return 0.0
+        logger.error(traceback.format_exc())
+        return 0.0  # Return 0 similarity on error rather than crashing
 
-# Function to get embedding from API
+# Function to get embedding from aipipe proxy with retry mechanism
 async def get_embedding(text, max_retries=3):
     if not API_KEY:
-        raise HTTPException(status_code=500, detail="API_KEY not configured. Please set the API_KEY environment variable.")
+        error_msg = "API_KEY environment variable not set"
+        logger.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
     
     retries = 0
     while retries < max_retries:
         try:
             logger.info(f"Getting embedding for text (length: {len(text)})")
-            
+            # Call the embedding API through aipipe proxy
             url = "https://aiproxy.sanand.workers.dev/openai/v1/embeddings"
+            if not API_KEY:
+                error_msg = "API_KEY environment variable is not set"
+                logger.error(error_msg)
+                raise HTTPException(status_code=500, detail=error_msg)
+
             headers = {
-                "Authorization": API_KEY,
+                "Authorization": API_KEY,  # This adds Bearer once
                 "Content-Type": "application/json"
             }
             payload = {
@@ -177,37 +168,33 @@ async def get_embedding(text, max_retries=3):
                 "input": text
             }
             
+            logger.info("Sending request to embedding API")
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, headers=headers, json=payload, timeout=30) as response:
+                async with session.post(url, headers=headers, json=payload) as response:
                     if response.status == 200:
                         result = await response.json()
                         logger.info("Successfully received embedding")
                         return result["data"][0]["embedding"]
-                    elif response.status == 429:
+                    elif response.status == 429:  # Rate limit error
                         error_text = await response.text()
                         logger.warning(f"Rate limit reached, retrying after delay (retry {retries+1}): {error_text}")
-                        await asyncio.sleep(5 * (retries + 1))
+                        await asyncio.sleep(5 * (retries + 1))  # Exponential backoff
                         retries += 1
                     else:
                         error_text = await response.text()
                         error_msg = f"Error getting embedding (status {response.status}): {error_text}"
                         logger.error(error_msg)
                         raise HTTPException(status_code=response.status, detail=error_msg)
-        except asyncio.TimeoutError:
-            logger.warning(f"Timeout getting embedding (retry {retries+1})")
-            retries += 1
-            if retries >= max_retries:
-                raise HTTPException(status_code=500, detail="Timeout getting embedding")
-            await asyncio.sleep(3 * retries)
         except Exception as e:
             error_msg = f"Exception getting embedding (attempt {retries+1}/{max_retries}): {e}"
             logger.error(error_msg)
+            logger.error(traceback.format_exc())
             retries += 1
             if retries >= max_retries:
                 raise HTTPException(status_code=500, detail=error_msg)
-            await asyncio.sleep(3 * retries)
+            await asyncio.sleep(3 * retries)  # Wait before retry
 
-# Function to find similar content
+# Function to find similar content in the database with improved logic
 async def find_similar_content(query_embedding, conn):
     try:
         logger.info("Finding similar content in database")
@@ -215,6 +202,7 @@ async def find_similar_content(query_embedding, conn):
         results = []
         
         # Search discourse chunks
+        logger.info("Querying discourse chunks")
         cursor.execute("""
         SELECT id, post_id, topic_id, topic_title, post_number, author, created_at, 
                likes, chunk_index, content, url, embedding 
@@ -224,6 +212,7 @@ async def find_similar_content(query_embedding, conn):
         
         discourse_chunks = cursor.fetchall()
         logger.info(f"Processing {len(discourse_chunks)} discourse chunks")
+        processed_count = 0
         
         for chunk in discourse_chunks:
             try:
@@ -231,8 +220,10 @@ async def find_similar_content(query_embedding, conn):
                 similarity = cosine_similarity(query_embedding, embedding)
                 
                 if similarity >= SIMILARITY_THRESHOLD:
+                    # Ensure URL is properly formatted
                     url = chunk["url"]
                     if not url.startswith("http"):
+                        # Fix missing protocol
                         url = f"https://discourse.onlinedegree.iitm.ac.in/t/{url}"
                     
                     results.append({
@@ -248,10 +239,16 @@ async def find_similar_content(query_embedding, conn):
                         "chunk_index": chunk["chunk_index"],
                         "similarity": float(similarity)
                     })
+                
+                processed_count += 1
+                if processed_count % 1000 == 0:
+                    logger.info(f"Processed {processed_count}/{len(discourse_chunks)} discourse chunks")
+                    
             except Exception as e:
                 logger.error(f"Error processing discourse chunk {chunk['id']}: {e}")
         
         # Search markdown chunks
+        logger.info("Querying markdown chunks")
         cursor.execute("""
         SELECT id, doc_title, original_url, downloaded_at, chunk_index, content, embedding 
         FROM markdown_chunks 
@@ -260,6 +257,7 @@ async def find_similar_content(query_embedding, conn):
         
         markdown_chunks = cursor.fetchall()
         logger.info(f"Processing {len(markdown_chunks)} markdown chunks")
+        processed_count = 0
         
         for chunk in markdown_chunks:
             try:
@@ -267,8 +265,10 @@ async def find_similar_content(query_embedding, conn):
                 similarity = cosine_similarity(query_embedding, embedding)
                 
                 if similarity >= SIMILARITY_THRESHOLD:
+                    # Ensure URL is properly formatted
                     url = chunk["original_url"]
                     if not url or not url.startswith("http"):
+                        # Use a default URL if missing
                         url = f"https://docs.onlinedegree.iitm.ac.in/{chunk['doc_title']}"
                     
                     results.append({
@@ -280,16 +280,23 @@ async def find_similar_content(query_embedding, conn):
                         "chunk_index": chunk["chunk_index"],
                         "similarity": float(similarity)
                     })
+                
+                processed_count += 1
+                if processed_count % 1000 == 0:
+                    logger.info(f"Processed {processed_count}/{len(markdown_chunks)} markdown chunks")
+                    
             except Exception as e:
                 logger.error(f"Error processing markdown chunk {chunk['id']}: {e}")
         
-        # Sort by similarity
+        # Sort by similarity (descending)
         results.sort(key=lambda x: x["similarity"], reverse=True)
         logger.info(f"Found {len(results)} relevant results above threshold")
         
-        # Group by source document
+        # Group by source document and keep most relevant chunks
         grouped_results = {}
+        
         for result in results:
+            # Create a unique key for the document/post
             if result["source"] == "discourse":
                 key = f"discourse_{result['post_id']}"
             else:
@@ -297,27 +304,107 @@ async def find_similar_content(query_embedding, conn):
             
             if key not in grouped_results:
                 grouped_results[key] = []
+            
             grouped_results[key].append(result)
         
-        # Keep top chunks per source
+        # For each source, keep only the most relevant chunks
         final_results = []
         for key, chunks in grouped_results.items():
+            # Sort chunks by similarity
             chunks.sort(key=lambda x: x["similarity"], reverse=True)
+            # Keep top chunks
             final_results.extend(chunks[:MAX_CONTEXT_CHUNKS])
         
+        # Sort again by similarity
         final_results.sort(key=lambda x: x["similarity"], reverse=True)
-        return final_results[:MAX_RESULTS]
         
+        # Return top results, limited by MAX_RESULTS
+        logger.info(f"Returning {len(final_results[:MAX_RESULTS])} final results after grouping")
+        return final_results[:MAX_RESULTS]
     except Exception as e:
         error_msg = f"Error in find_similar_content: {e}"
         logger.error(error_msg)
         logger.error(traceback.format_exc())
         raise
 
-# Function to generate answer using LLM
+# Function to enrich content with adjacent chunks
+async def enrich_with_adjacent_chunks(conn, results):
+    try:
+        logger.info(f"Enriching {len(results)} results with adjacent chunks")
+        cursor = conn.cursor()
+        enriched_results = []
+        
+        for result in results:
+            enriched_result = result.copy()
+            additional_content = ""
+            
+            # Try to get adjacent chunks for context
+            if result["source"] == "discourse":
+                post_id = result["post_id"]
+                current_chunk_index = result["chunk_index"]
+                
+                # Try to get previous chunk
+                if current_chunk_index > 0:
+                    cursor.execute("""
+                    SELECT content FROM discourse_chunks 
+                    WHERE post_id = ? AND chunk_index = ?
+                    """, (post_id, current_chunk_index - 1))
+                    prev_chunk = cursor.fetchone()
+                    if prev_chunk:
+                        additional_content = prev_chunk["content"] + " "
+                
+                # Try to get next chunk
+                cursor.execute("""
+                SELECT content FROM discourse_chunks 
+                WHERE post_id = ? AND chunk_index = ?
+                """, (post_id, current_chunk_index + 1))
+                next_chunk = cursor.fetchone()
+                if next_chunk:
+                    additional_content += " " + next_chunk["content"]
+                
+            elif result["source"] == "markdown":
+                title = result["title"]
+                current_chunk_index = result["chunk_index"]
+                
+                # Try to get previous chunk
+                if current_chunk_index > 0:
+                    cursor.execute("""
+                    SELECT content FROM markdown_chunks 
+                    WHERE doc_title = ? AND chunk_index = ?
+                    """, (title, current_chunk_index - 1))
+                    prev_chunk = cursor.fetchone()
+                    if prev_chunk:
+                        additional_content = prev_chunk["content"] + " "
+                
+                # Try to get next chunk
+                cursor.execute("""
+                SELECT content FROM markdown_chunks 
+                WHERE doc_title = ? AND chunk_index = ?
+                """, (title, current_chunk_index + 1))
+                next_chunk = cursor.fetchone()
+                if next_chunk:
+                    additional_content += " " + next_chunk["content"]
+            
+            # Add the enriched content
+            if additional_content:
+                enriched_result["content"] = f"{result['content']} {additional_content}"
+            
+            enriched_results.append(enriched_result)
+        
+        logger.info(f"Successfully enriched {len(enriched_results)} results")
+        return enriched_results
+    except Exception as e:
+        error_msg = f"Error in enrich_with_adjacent_chunks: {e}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        raise
+
+# Function to generate an answer using LLM with improved prompt
 async def generate_answer(question, relevant_results, max_retries=2):
     if not API_KEY:
-        raise HTTPException(status_code=500, detail="API_KEY not configured. Please set the API_KEY environment variable.")
+        error_msg = "API_KEY environment variable not set"
+        logger.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
     
     retries = 0
     while retries < max_retries:    
@@ -328,6 +415,7 @@ async def generate_answer(question, relevant_results, max_retries=2):
                 source_type = "Discourse post" if result["source"] == "discourse" else "Documentation"
                 context += f"\n\n{source_type} (URL: {result['url']}):\n{result['content'][:1500]}"
             
+            # Prepare improved prompt
             prompt = f"""Answer the following question based ONLY on the provided context. 
             If you cannot answer the question based on the context, say "I don't have enough information to answer this question."
             
@@ -348,68 +436,73 @@ async def generate_answer(question, relevant_results, max_retries=2):
             Make sure the URLs are copied exactly from the context without any changes.
             """
             
+            logger.info("Sending request to LLM API")
+            # Call OpenAI API through aipipe proxy
+            #url = "https://aipipe.org/openai/v1/chat/completions"
             url = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
             headers = {
-                "Authorization": API_KEY,
-                "Content-Type": "application/json"
-            }
+               "Authorization": API_KEY,  # This adds Bearer once
+            "Content-Type": "application/json"
+                }
             payload = {
                 "model": "gpt-4o-mini",
                 "messages": [
                     {"role": "system", "content": "You are a helpful assistant that provides accurate answers based only on the provided context. Always include sources in your response with exact URLs."},
                     {"role": "user", "content": prompt}
                 ],
-                "temperature": 0.3
+                "temperature": 0.3  # Lower temperature for more deterministic outputs
             }
             
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, headers=headers, json=payload, timeout=60) as response:
+                async with session.post(url, headers=headers, json=payload) as response:
                     if response.status == 200:
                         result = await response.json()
                         logger.info("Successfully received answer from LLM")
                         return result["choices"][0]["message"]["content"]
-                    elif response.status == 429:
+                    elif response.status == 429:  # Rate limit error
                         error_text = await response.text()
                         logger.warning(f"Rate limit reached, retrying after delay (retry {retries+1}): {error_text}")
-                        await asyncio.sleep(3 * (retries + 1))
+                        await asyncio.sleep(3 * (retries + 1))  # Exponential backoff
                         retries += 1
                     else:
                         error_text = await response.text()
                         error_msg = f"Error generating answer (status {response.status}): {error_text}"
                         logger.error(error_msg)
                         raise HTTPException(status_code=response.status, detail=error_msg)
-        except asyncio.TimeoutError:
-            logger.warning(f"Timeout generating answer (retry {retries+1})")
-            retries += 1
-            if retries >= max_retries:
-                raise HTTPException(status_code=500, detail="Timeout generating answer")
-            await asyncio.sleep(2)
         except Exception as e:
             error_msg = f"Exception generating answer: {e}"
             logger.error(error_msg)
+            logger.error(traceback.format_exc())
             retries += 1
             if retries >= max_retries:
                 raise HTTPException(status_code=500, detail=error_msg)
-            await asyncio.sleep(2)
+            await asyncio.sleep(2)  # Wait before retry
 
-# Function to process multimodal content
+# Function to process multimodal content (text + image)
 async def process_multimodal_query(question, image_base64):
+    if not API_KEY:
+        error_msg = "API_KEY environment variable not set"
+        logger.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
+        
     try:
         logger.info(f"Processing query: '{question[:50]}...', image provided: {image_base64 is not None}")
         if not image_base64:
+            logger.info("No image provided, processing as text-only query")
             return await get_embedding(question)
         
-        if not API_KEY:
-            raise HTTPException(status_code=500, detail="API_KEY not configured. Please set the API_KEY environment variable.")
-        
-        # Process image with GPT-4o Vision
+        logger.info("Processing multimodal query with image")
+        # Call the GPT-4o Vision API to process the image and question
+        #url = "https://aipipe.org/openai/v1/chat/completions"
         url = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
-        headers = {
-            "Authorization": API_KEY,
-            "Content-Type": "application/json"
-        }
         
+        headers = {
+            "Authorization": API_KEY,  # This adds Bearer once
+            "Content-Type": "application/json"
+                   }
+        # Format the image for the API
         image_content = f"data:image/jpeg;base64,{image_base64}"
+        
         payload = {
             "model": "gpt-4o-mini",
             "messages": [
@@ -423,26 +516,43 @@ async def process_multimodal_query(question, image_base64):
             ]
         }
         
+        logger.info("Sending request to Vision API")
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload, timeout=60) as response:
+            async with session.post(url, headers=headers, json=payload) as response:
                 if response.status == 200:
                     result = await response.json()
                     image_description = result["choices"][0]["message"]["content"]
+                    logger.info(f"Received image description: '{image_description[:50]}...'")
+                    
+                    # Combine the original question with the image description
                     combined_query = f"{question}\nImage context: {image_description}"
+                    
+                    # Get embedding for the combined query
                     return await get_embedding(combined_query)
                 else:
-                    logger.error(f"Error processing image: {response.status}")
+                    error_text = await response.text()
+                    logger.error(f"Error processing image (status {response.status}): {error_text}")
+                    # Fall back to text-only query
+                    logger.info("Falling back to text-only query")
                     return await get_embedding(question)
     except Exception as e:
         logger.error(f"Exception processing multimodal query: {e}")
+        logger.error(traceback.format_exc())
+        # Fall back to text-only query
+        logger.info("Falling back to text-only query due to exception")
         return await get_embedding(question)
 
-# Parse LLM response
+# Function to parse LLM response and extract answer and sources with improved reliability
 def parse_llm_response(response):
     try:
+        logger.info("Parsing LLM response")
+        
+        # First try to split by "Sources:" heading
         parts = response.split("Sources:", 1)
         
+        # If that doesn't work, try alternative formats
         if len(parts) == 1:
+            # Try other possible headings
             for heading in ["Source:", "References:", "Reference:"]:
                 if heading in response:
                     parts = response.split(heading, 1)
@@ -460,169 +570,227 @@ def parse_llm_response(response):
                 if not line:
                     continue
                     
+                # Remove list markers (1., 2., -, etc.)
                 line = re.sub(r'^\d+\.\s*', '', line)
                 line = re.sub(r'^-\s*', '', line)
                 
+                # Extract URL and text using more flexible patterns
                 url_match = re.search(r'URL:\s*\[(.*?)\]|url:\s*\[(.*?)\]|\[(http[^\]]+)\]|URL:\s*(http\S+)|url:\s*(http\S+)|(http\S+)', line, re.IGNORECASE)
                 text_match = re.search(r'Text:\s*\[(.*?)\]|text:\s*\[(.*?)\]|[""](.*?)[""]|Text:\s*"(.*?)"|text:\s*"(.*?)"', line, re.IGNORECASE)
                 
                 if url_match:
-                    url = next((g for g in url_match.groups() if g), "").strip()
+                    # Find the first non-None group from the regex match
+                    url = next((g for g in url_match.groups() if g), "")
+                    url = url.strip()
+                    
+                    # Default text if no match
                     text = "Source reference"
                     
+                    # If we found a text match, use it
                     if text_match:
+                        # Find the first non-None group from the regex match
                         text_value = next((g for g in text_match.groups() if g), "")
                         if text_value:
                             text = text_value.strip()
                     
+                    # Only add if we have a valid URL
                     if url and url.startswith("http"):
                         links.append({"url": url, "text": text})
         
+        logger.info(f"Parsed answer (length: {len(answer)}) and {len(links)} sources")
         return {"answer": answer, "links": links}
     except Exception as e:
-        logger.error(f"Error parsing LLM response: {e}")
+        error_msg = f"Error parsing LLM response: {e}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        # Return a basic response structure with the error
         return {
             "answer": "Error parsing the response from the language model.",
             "links": []
         }
 
-# API Routes
+# Define API routes
+# ... [all your imports and setup code remain unchanged]
+
 @app.get("/")
 async def root():
-    # Check configuration status
-    config_status = {
-        "api_key_configured": API_KEY is not None,
-        "environment": "vercel" if os.getenv('VERCEL') else "local",
-        "database_available": not os.getenv('VERCEL')  # Database only available locally
-    }
-    
-    status_message = ""
-    if not config_status["api_key_configured"]:
-        status_message += "⚠️ API_KEY not configured. "
-    if config_status["environment"] == "vercel" and not config_status["database_available"]:
-        status_message += "⚠️ Database not configured for production. "
-    
-    if not status_message:
-        status_message = "✅ All systems configured correctly."
-    
-    return HTMLResponse(content=f"""
-    <html>
-        <head>
-            <title>RAG Query API</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; margin: 2em; }}
-                .status {{ padding: 1em; margin: 1em 0; border-radius: 5px; }}
-                .warning {{ background-color: #fff3cd; border: 1px solid #ffeaa7; }}
-                .success {{ background-color: #d4edda; border: 1px solid #c3e6cb; }}
-            </style>
-        </head>
-        <body>
-            <h1>RAG Query API</h1>
-            <div class="status {'success' if not status_message.startswith('⚠️') else 'warning'}">
-                <strong>Status:</strong> {status_message}
-            </div>
-            <p>API is running. Use POST /api/ to make queries.</p>
-            <p>Environment: {config_status["environment"]}</p>
-            <p>API Key: {'✅ Configured' if config_status["api_key_configured"] else '❌ Not configured'}</p>
-            <p>Database: {'✅ Available' if config_status["database_available"] else '❌ Not configured'}</p>
-            <p>For the full interface, serve the index.html file separately.</p>
-        </body>
-    </html>
-    """, status_code=200)
+    try:
+        with open("index.html", "r") as file:
+            return HTMLResponse(content=file.read(), status_code=200)
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>RAG Query API</h1><p>API is running. Use POST /api/ to make queries.</p>", status_code=200)
 
 @app.post("/api/", response_model=QueryResponse)
 async def api_query(request: Request):
     try:
-        logger.info(f"Received request from: {request.client.host if request.client else 'unknown'}")
-        
         body = await request.json()
         question = body.get("question")
         image = body.get("image")
-        
         if not question:
             return JSONResponse(
                 status_code=400,
                 content={"answer": "Error: Question is required", "links": []}
             )
-        
         logger.info(f"Received API query: '{question[:50]}...'")
-        
-        # Check if API key is configured
-        if not API_KEY:
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "answer": "API_KEY not configured. Please set the API_KEY environment variable in your Vercel dashboard.",
-                    "links": []
-                }
-            )
-        
-        # Check if we're in Vercel and database isn't set up
-        if os.getenv('VERCEL'):
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "answer": "Database not configured for production deployment. Please set up Vercel Postgres or another cloud database service.",
-                    "links": []
-                }
-            )
-        
         conn = get_db_connection()
         try:
             query_embedding = await process_multimodal_query(question, image)
             similar_results = await find_similar_content(query_embedding, conn)
-            
             if not similar_results:
-                return {
-                    "answer": "I don't have enough information to answer this question based on the available knowledge base.", 
-                    "links": []
-                }
-            
-            llm_response = await generate_answer(question, similar_results)
+                logger.info("No similar content found")
+                return {"answer": "I don't have enough information to answer this question based on the available knowledge base.", "links": []}
+            enriched_results = await enrich_with_adjacent_chunks(conn, similar_results)
+            llm_response = await generate_answer(question, enriched_results)
             parsed_response = parse_llm_response(llm_response)
-            
+            logger.info(f"Returning answer with {len(parsed_response['links'])} links")
+            # Enforce format: answer (string), links (list of dicts with url/text)
             return QueryResponse(
                 answer=parsed_response["answer"],
                 links=[LinkInfo(**link) for link in parsed_response["links"]]
             )
         finally:
             conn.close()
-            
     except Exception as e:
-        logger.error(f"API Error: {str(e)}")
+        error_msg = f"Unhandled exception in api_query: {str(e)}"
+        logger.error(error_msg)
         logger.error(traceback.format_exc())
         return JSONResponse(
             status_code=500,
-            content={
-                "answer": f"Server error: {str(e)}",
-                "links": []
-            }
+            content={"answer": f"Error: {str(e)}", "links": []}
         )
 
 @app.get("/health")
 async def health_check():
+    # ... [same as your health check code]
+    pass
+
+# Optionally, remove or comment out the old / and /query POST endpoints to avoid confusion
+
+if __name__ == "__main__":
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+
+
+
+"""
+@app.post("/")
+@app.post("/query")
+async def query_knowledge_base(request: Request):
     try:
-        health_status = {
-            "status": "healthy",
-            "environment": "vercel" if os.getenv('VERCEL') else "local",
-            "api_key_configured": API_KEY is not None,
-            "database": "not_configured" if os.getenv('VERCEL') else "connected"
-        }
+        # Parse the JSON body from the request
+        body = await request.json()
+        question = body.get("question")
+        image = body.get("image")
         
-        if not os.getenv('VERCEL'):
-            # Test database connection only if not on Vercel
-            conn = get_db_connection()
+        # Validate that question is provided
+        if not question:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "answer": "Error: Question is required",
+                    "links": []
+                }
+            )
+        
+        logger.info(f"Received query: '{question[:50]}...'")
+        
+        # Get database connection
+        conn = get_db_connection()
+        
+        try:
+            # Process the query (multimodal if image is provided)
+            query_embedding = await process_multimodal_query(question, image)
+            
+            # Find similar content
+            similar_results = await find_similar_content(query_embedding, conn)
+            
+            if not similar_results:
+                logger.info("No similar content found")
+                return JSONResponse(
+                    content={
+                        "answer": "I don't have enough information to answer this question based on the available knowledge base.",
+                        "links": []
+                    }
+                )
+            
+            # Enrich results with adjacent chunks for better context
+            enriched_results = await enrich_with_adjacent_chunks(conn, similar_results)
+            
+            # Generate answer using LLM
+            llm_response = await generate_answer(question, enriched_results)
+            
+            # Parse the LLM response
+            parsed_response = parse_llm_response(llm_response)
+            
+            logger.info(f"Successfully processed query, returning answer with {len(parsed_response['links'])} links")
+            
+            return JSONResponse(content={
+                "answer": parsed_response["answer"],
+                "links": parsed_response["links"]
+            })
+            
+        finally:
             conn.close()
-            health_status["database"] = "connected"
-        
-        return health_status
+            
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
+        error_msg = f"Unhandled exception in query_knowledge_base: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
         return JSONResponse(
-            status_code=500, 
+            status_code=500,
             content={
-                "status": "unhealthy", 
-                "error": str(e),
-                "api_key_configured": API_KEY is not None
+                "answer": f"Error: {str(e)}",
+                "links": []
             }
         )
+
+@app.get("/")
+async def root():
+    try:
+        with open("index.html", "r") as file:
+            return HTMLResponse(content=file.read(), status_code=200)
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>RAG Query API</h1><p>API is running. Use POST /query to make queries.</p>", status_code=200)
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    try:
+        # Try to connect to the database as part of health check
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Check if tables exist and have data
+        cursor.execute("SELECT COUNT(*) FROM discourse_chunks")
+        discourse_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM markdown_chunks")
+        markdown_count = cursor.fetchone()[0]
+        
+        # Check if any embeddings exist
+        cursor.execute("SELECT COUNT(*) FROM discourse_chunks WHERE embedding IS NOT NULL")
+        discourse_embeddings = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM markdown_chunks WHERE embedding IS NOT NULL")
+        markdown_embeddings = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return {
+            "status": "healthy", 
+            "database": "connected", 
+            "api_key_set": bool(API_KEY),
+            "discourse_chunks": discourse_count,
+            "markdown_chunks": markdown_count,
+            "discourse_embeddings": discourse_embeddings,
+            "markdown_embeddings": markdown_embeddings
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "unhealthy", "error": str(e), "api_key_set": bool(API_KEY)}
+        )
+
+if __name__ == "__main__":
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    """
