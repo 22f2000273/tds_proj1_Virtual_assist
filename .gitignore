@@ -20,3 +20,4 @@ venv/
 # Node/Vercel (if applicable)
 node_modules/
 .vercel/
+knowledge_base.db

@@ -4,6 +4,7 @@ import json
 import sqlite3
 import numpy as np
 import re
+import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -20,7 +21,25 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Constants
+DB_URL ="https://drive.google.com/uc?export=download&id=1UCV7FjmKF6JVKnaZY1-D4D7Wk1xfv4b7"
 DB_PATH = "knowledge_base.db"
+
+def download_db():
+    if not os.path.exists(DB_PATH):
+        print("🔽 Downloading knowledge_base.db from Google Drive...")
+        try:
+            response = requests.get(DB_URL)
+            response.raise_for_status()
+            with open(DB_PATH, "wb") as f:
+                f.write(response.content)
+            print("✅ Download complete.")
+        except Exception as e:
+            print("❌ Failed to download DB:", str(e))
+            raise
+
+download_db()
+
+
 SIMILARITY_THRESHOLD = 0.20
 MAX_RESULTS = 20
 load_dotenv()
