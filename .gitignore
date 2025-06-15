@@ -10,10 +10,6 @@ venv/
 # Environment variables
 .env
 
-# System files
-.DS_Store
-Thumbs.db
-
 # VSCode or editor settings
 .vscode/
 *.code-workspace
